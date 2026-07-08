@@ -1,1 +1,1 @@
-const API_BASE_URL = "https://gakushoku-api-XXXX.onrender.com";
+const API_BASE_URL = "https://gakushoku-api.onrender.com";
