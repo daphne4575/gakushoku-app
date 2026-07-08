@@ -87,6 +87,7 @@ async function loginStudent(){
   const student_id = $("student-id-input").value.trim();
   const password = $("student-pw-input").value;
   if(!student_id || !password){ showToast("学籍番号とパスワードを入力してください"); return; }
+  if(student_id.length < 5 || student_id.length > 6){ showToast("学籍番号は5桁または6桁で入力してください"); return; }
   try{
     const data = await apiFetch("/api/auth/login", { method:"POST", body:{ student_id, password } });
     state.token = data.token; state.role = "student"; state.identity = data.student_id;
@@ -99,6 +100,7 @@ async function registerStudent(){
   const student_id = $("reg-id-input").value.trim();
   const email = $("reg-email-input").value.trim();
   const password = $("reg-pw-input").value;
+  if(student_id.length < 5 || student_id.length > 6){ showToast("学籍番号は5桁または6桁で入力してください"); return; }
   try{
     await apiFetch("/api/auth/register", { method:"POST", body:{ student_id, email, password } });
     showToast("登録が完了しました。ログインします");
@@ -323,8 +325,13 @@ async function renderAdminTop(){
             <option value="false" ${m.soldout_status ? "selected":""}>いいえ</option>
           </select>
         </td>
+        <td><button class="delete-btn" data-menu-id="${m.id}">削除</button></td>
       </tr>
     `).join("");
+
+    $("admin-menu-tbody").querySelectorAll(".delete-btn").forEach(btn=>{
+      btn.addEventListener("click", ()=> deleteMenu(Number(btn.dataset.menuId), btn));
+    });
   }catch(e){ showToast(e.message); }
 }
 
@@ -345,6 +352,17 @@ async function saveMenus(){
       });
     }
     showToast("変更を保存しました");
+  }catch(e){ showToast(e.message); }
+}
+
+async function deleteMenu(menuId, btnEl){
+  const row = btnEl.closest("tr");
+  const name = row.querySelector(".name-cell").textContent;
+  if(!confirm(`「${name}」を削除します。よろしいですか?`)) return;
+  try{
+    await apiFetch(`/api/admin/menus/${menuId}`, { method:"DELETE", auth:true });
+    showToast(`「${name}」を削除しました`);
+    renderAdminTop();
   }catch(e){ showToast(e.message); }
 }
 

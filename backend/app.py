@@ -9,7 +9,7 @@
 環境変数:
     DATABASE_URL   PostgreSQL接続文字列(未設定時はSQLiteをローカルに作成)
     SECRET_KEY     トークン署名用の秘密鍵
-    ADMIN_PASSWORD 管理者ログイン用パスワード
+    ADMIN_PASSWORD 管理者ログイン用パスワード(akashi_gakushoku)
     ALLOWED_ORIGIN CORSを許可するオリジン(例: https://<user>.github.io)
 """
 
@@ -58,7 +58,7 @@ class User(db.Model):
     """ユーザーテーブル: 学生用メールアドレス、パスワードを保持する"""
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
-    student_id = db.Column(db.String(5), unique=True, nullable=False)
+    student_id = db.Column(db.String(6), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=True)
     password_hash = db.Column(db.String(255), nullable=False)  # ※varchar(12)から拡張(ハッシュ値を保存するため)
 
@@ -78,7 +78,7 @@ class Menu(db.Model):
     popularity = db.Column(db.Integer, default=0)               # ※拡張: 人気順ランキング用
     date = db.Column(db.String(10), default=lambda: datetime.utcnow().strftime("%Y-%m-%d"))
     soldout_status = db.Column(db.Boolean, default=False)       # 初期状態は「販売中」(False)
-    reporter_id = db.Column(db.String(5), nullable=True)
+    reporter_id = db.Column(db.String(6), nullable=True)
 
     def to_dict(self):
         return {
@@ -101,7 +101,7 @@ class Congestion(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.DateTime, default=datetime.utcnow)
     crowd_status = db.Column(db.Float, default=0.0)  # 0.0=空席あり 0.5=やや混雑 1.0=満席
-    reporter_id = db.Column(db.String(5), nullable=True)
+    reporter_id = db.Column(db.String(6), nullable=True)
 
     def to_dict(self):
         return {
@@ -121,7 +121,7 @@ class Review(db.Model):
     review_score = db.Column(db.Integer, nullable=False)
     review_msg = db.Column(db.String(400), default="")
     review_tag = db.Column(db.String(150), default="")  # ※char(6)から拡張(複数タグをカンマ区切りで保存)
-    reviewer_id = db.Column(db.String(5), nullable=True)
+    reviewer_id = db.Column(db.String(6), nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def to_dict(self):
@@ -184,8 +184,8 @@ def register():
     email = str(data.get("email", "")).strip() or None
     password = str(data.get("password", ""))
 
-    if len(student_id) == 0 or len(password) < 4:
-        return jsonify({"error": "学籍番号とパスワード(4文字以上)を入力してください"}), 400
+    if len(student_id) not in (5, 6) or len(password) < 4:
+        return jsonify({"error": "学籍番号は5桁または6桁、パスワードは4文字以上で入力してください"}), 400
     if User.query.filter_by(student_id=student_id).first():
         return jsonify({"error": "この学籍番号は既に登録されています"}), 409
 
@@ -344,6 +344,14 @@ def report_soldout(menu_id):
     db.session.commit()
     return jsonify(menu.to_dict())
 
+@app.delete("/api/admin/menus/<int:menu_id>")
+def delete_menu(menu_id):
+    if not require_role("admin"):
+        return jsonify({"error": "権限がありません"}), 401
+    menu = Menu.query.get_or_404(menu_id)
+    db.session.delete(menu)
+    db.session.commit()
+    return jsonify({"message": "削除しました"})
 
 # ------------------------------------------------------------------
 # 3.1〜3.3 混雑報告受付・判定・配信
