@@ -43,8 +43,8 @@
       <!-- 学生新規登録 -->
       <div class="auth-panel" id="login-register">
         <div class="field">
-          <label for="reg-id-input">学籍番号(5桁)</label>
-          <input type="text" id="reg-id-input" maxlength="5" placeholder="例) 12345">
+          <label for="reg-id-input">学籍番号(5桁または6桁)</label>
+          <input type="text" id="reg-id-input" maxlength="6" placeholder="例) M2481">
         </div>
         <div class="field">
           <label for="reg-email-input">メールアドレス(任意)</label>
@@ -100,12 +100,11 @@
   <div class="panel">
     <h2 class="panel-title">ランキング</h2>
     <div class="tabs" id="rank-tabs">
-      <button class="tab active" data-sort="popularity">人気順</button>
-      <button class="tab" data-sort="price">安い順</button>
+      <button class="tab active" data-sort="price">安い順</button>
       <button class="tab" data-sort="efficiency">高カロリー効率順</button>
       <button class="tab" data-sort="rating">高評価順</button>
     </div>
-    <p class="tab-desc" id="tab-desc">人気度が高い順に表示します。</p>
+    <p class="tab-desc" id="tab-desc">値段が安い順に表示します。</p>
 
     <div class="menu-grid" id="menu-grid"><p class="empty-note">読み込み中...</p></div>
   </div>
@@ -190,6 +189,16 @@
   </div>
 </section>
 
+<!-- ===================== 学生: メニューごとのレビュー閲覧(匿名) ===================== -->
+<section id="view-menu-reviews" class="view">
+  <div class="panel">
+    <button class="btn-back" id="btn-back-from-menu-reviews">&larr; メニュー確認画面へ戻る</button>
+    <h2 class="panel-title" id="menu-reviews-title">レビュー一覧</h2>
+    <p class="tab-desc">投稿者は匿名で表示されます。</p>
+    <div class="review-list" id="menu-reviews-list"></div>
+  </div>
+</section>
+
 <!-- ===================== 管理者: メニュー編集画面(トップ) ===================== -->
 <section id="view-admin-top" class="view">
   <div class="hero hero-admin">
@@ -203,8 +212,9 @@
   </div>
 
   <div class="panel">
-    <h2 class="panel-title">CSV一括登録</h2>
-    <p class="tab-desc">列: menu_name, category, price, calorie, initial_stock, popularity</p>
+    <h2 class="panel-title">CSV一括登録(日替わりメニュー対応)</h2>
+    <p class="tab-desc">列: menu_name, category, price, calorie, initial_stock, date(任意)<br>
+    dateを空欄にすると常設メニュー(毎日表示)、YYYY-MM-DD形式で入力するとその日だけ表示される日替わりメニューになります。</p>
     <div class="csv-upload">
       <input type="file" id="csv-file-input" accept=".csv">
       <button class="btn btn-primary" id="btn-csv-upload">アップロード</button>
@@ -213,11 +223,17 @@
 
   <div class="panel">
     <h2 class="panel-title">既存メニュー編集</h2>
+    <div class="csv-upload" style="margin-bottom:14px;">
+      <label style="font-size:13px; color:var(--ink-soft);">表示する日付:</label>
+      <input type="date" id="admin-date-filter">
+      <button class="btn btn-outline btn-sm" id="btn-filter-today">今日を表示</button>
+      <button class="btn btn-outline btn-sm" id="btn-filter-all">すべて表示</button>
+    </div>
     <div class="table-wrap">
       <table class="menu-table" id="admin-menu-table">
         <thead>
           <tr>
-            <th>メニュー名</th><th>カテゴリ</th><th>値段</th><th>カロリー</th><th>人気度</th><th>販売中</th>
+            <th>メニュー名</th><th>カテゴリ</th><th>値段</th><th>カロリー</th><th>日付</th><th>販売中</th><th>削除</th>
           </tr>
         </thead>
         <tbody id="admin-menu-tbody"></tbody>
@@ -253,8 +269,8 @@
       <input type="number" id="add-calorie" min="0">
     </div>
     <div class="field">
-      <label for="add-popularity">初期人気度(0以上)</label>
-      <input type="number" id="add-popularity" min="0" value="0">
+      <label for="add-date">日付(空欄なら常設メニュー、指定するとその日だけ表示)</label>
+      <input type="date" id="add-date">
     </div>
     <div class="field">
       <label for="add-onsale">販売中</label>

@@ -9,7 +9,7 @@
 環境変数:
     DATABASE_URL   PostgreSQL接続文字列(未設定時はSQLiteをローカルに作成)
     SECRET_KEY     トークン署名用の秘密鍵
-    ADMIN_PASSWORD 管理者ログイン用パスワード(akashi_gakushoku)
+    ADMIN_PASSWORD 管理者ログイン用パスワード
     ALLOWED_ORIGIN CORSを許可するオリジン(例: https://<user>.github.io)
 """
 
@@ -75,8 +75,7 @@ class Menu(db.Model):
     calorie = db.Column(db.Integer, default=0)
     price = db.Column(db.Integer, default=0)
     initial_stock = db.Column(db.Integer, default=0)            # 口数
-    popularity = db.Column(db.Integer, default=0)               # ※拡張: 人気順ランキング用
-    date = db.Column(db.String(10), default=lambda: datetime.utcnow().strftime("%Y-%m-%d"))
+    date = db.Column(db.String(10), nullable=True)              # NULL=常設メニュー、値あり=その日限定の日替わりメニュー
     soldout_status = db.Column(db.Boolean, default=False)       # 初期状態は「販売中」(False)
     reporter_id = db.Column(db.String(6), nullable=True)
 
@@ -88,7 +87,6 @@ class Menu(db.Model):
             "calorie": self.calorie,
             "price": self.price,
             "initial_stock": self.initial_stock,
-            "popularity": self.popularity,
             "date": self.date,
             "soldout_status": self.soldout_status,
             "reporter_id": self.reporter_id,
@@ -225,7 +223,14 @@ def login_admin():
 # ------------------------------------------------------------------
 @app.get("/api/menus")
 def list_menus():
-    menus = Menu.query.order_by(Menu.id.asc()).all()
+    """date=YYYY-MM-DD を指定すると、その日限定メニュー+常設メニューのみ返す。
+    指定なしの場合は全件返す(管理画面での一覧表示用)。"""
+    date_param = request.args.get("date")
+    query = Menu.query
+    if date_param:
+        query = query.filter(db.or_(Menu.date.is_(None), Menu.date == "", Menu.date == date_param))
+
+    menus = query.order_by(Menu.id.asc()).all()
     result = []
     for m in menus:
         rs = Review.query.filter_by(menu_name=m.menu_name).all()
@@ -257,9 +262,11 @@ def bulk_upload_menus():
         name = (row.get("menu_name") or "").strip()
         if not name:
             continue
-        menu = Menu.query.filter_by(menu_name=name).first()
+        date_value = (row.get("date") or "").strip() or None
+
+        menu = Menu.query.filter_by(menu_name=name, date=date_value).first()
         if menu is None:
-            menu = Menu(menu_name=name, soldout_status=False)
+            menu = Menu(menu_name=name, date=date_value, soldout_status=False)
             db.session.add(menu)
             created += 1
         else:
@@ -268,7 +275,6 @@ def bulk_upload_menus():
         menu.price = int(row.get("price") or menu.price or 0)
         menu.calorie = int(row.get("calorie") or menu.calorie or 0)
         menu.initial_stock = int(row.get("initial_stock") or menu.initial_stock or 0)
-        menu.popularity = int(row.get("popularity") or menu.popularity or 0)
         # 一括登録時、売り切れステータスは初期状態(販売中)とする
         menu.soldout_status = False
 
@@ -294,7 +300,7 @@ def add_menu():
         price=int(data.get("price") or 0),
         calorie=int(data.get("calorie") or 0),
         initial_stock=int(data.get("initial_stock") or 0),
-        popularity=int(data.get("popularity") or 0),
+        date=(str(data.get("date")).strip() or None) if data.get("date") else None,
         soldout_status=not bool(data.get("on_sale", True)),
     )
     db.session.add(menu)
@@ -315,15 +321,25 @@ def edit_menu(menu_id):
         menu.price = int(data["price"])
     if "calorie" in data:
         menu.calorie = int(data["calorie"])
-    if "popularity" in data:
-        menu.popularity = int(data["popularity"])
     if "initial_stock" in data:
         menu.initial_stock = int(data["initial_stock"])
+    if "date" in data:
+        menu.date = str(data["date"]).strip() or None
     if "on_sale" in data:
         menu.soldout_status = not bool(data["on_sale"])
 
     db.session.commit()
     return jsonify(menu.to_dict())
+
+
+@app.delete("/api/admin/menus/<int:menu_id>")
+def delete_menu(menu_id):
+    if not require_role("admin"):
+        return jsonify({"error": "権限がありません"}), 401
+    menu = Menu.query.get_or_404(menu_id)
+    db.session.delete(menu)
+    db.session.commit()
+    return jsonify({"message": "削除しました"})
 
 
 # ------------------------------------------------------------------
@@ -344,14 +360,6 @@ def report_soldout(menu_id):
     db.session.commit()
     return jsonify(menu.to_dict())
 
-@app.delete("/api/admin/menus/<int:menu_id>")
-def delete_menu(menu_id):
-    if not require_role("admin"):
-        return jsonify({"error": "権限がありません"}), 401
-    menu = Menu.query.get_or_404(menu_id)
-    db.session.delete(menu)
-    db.session.commit()
-    return jsonify({"message": "削除しました"})
 
 # ------------------------------------------------------------------
 # 3.1〜3.3 混雑報告受付・判定・配信
@@ -412,6 +420,19 @@ def submit_review():
     return jsonify(review.to_dict()), 201
 
 
+@app.get("/api/menus/<int:menu_id>/reviews")
+def public_menu_reviews(menu_id):
+    """学生向け: 指定メニューのレビュー一覧を匿名(学籍番号を除く)で返す"""
+    menu = Menu.query.get_or_404(menu_id)
+    reviews = Review.query.filter_by(menu_name=menu.menu_name).order_by(Review.created_at.desc()).all()
+    result = []
+    for r in reviews:
+        d = r.to_dict()
+        d.pop("reviewer_id", None)
+        result.append(d)
+    return jsonify({"menu_name": menu.menu_name, "reviews": result})
+
+
 @app.get("/api/reviews")
 def list_reviews():
     if not require_role("admin"):
@@ -437,25 +458,25 @@ def seed_data():
     if Menu.query.count() > 0:
         return
     samples = [
-        ("アジフライ", "定食", 654, 430, 96, True),
-        ("回鍋肉", "定食", 610, 430, 89, True),
-        ("鶏もものレモンペッパーグリル", "定食", 662, 430, 84, True),
-        ("ポークソテーBBQソース", "定食", 776, 430, 87, True),
-        ("和風おろしハンバーグ丼", "丼", 601, 380, 90, True),
-        ("親子丼", "丼", 638, 380, 98, True),
-        ("豚プルコギ丼", "丼", 717, 380, 101, True),
-        ("イカ天丼", "丼", 730, 380, 78, True),
-        ("日替わり定食", "定食", 790, 550, 98, True),
-        ("カツカレー", "カレー", 960, 520, 120, True),
-        ("唐揚げ丼", "丼", 860, 480, 110, True),
-        ("味噌ラーメン", "麺", 710, 430, 88, True),
-        ("きつねうどん", "麺", 510, 320, 74, True),
-        ("焼き魚定食", "定食", 690, 580, 62, False),
+        ("アジフライ", "定食", 654, 430, True),
+        ("回鍋肉", "定食", 610, 430, True),
+        ("鶏もものレモンペッパーグリル", "定食", 662, 430, True),
+        ("ポークソテーBBQソース", "定食", 776, 430, True),
+        ("和風おろしハンバーグ丼", "丼", 601, 380, True),
+        ("親子丼", "丼", 638, 380, True),
+        ("豚プルコギ丼", "丼", 717, 380, True),
+        ("イカ天丼", "丼", 730, 380, True),
+        ("日替わり定食", "定食", 790, 550, True),
+        ("カツカレー", "カレー", 960, 520, True),
+        ("唐揚げ丼", "丼", 860, 480, True),
+        ("味噌ラーメン", "麺", 710, 430, True),
+        ("きつねうどん", "麺", 510, 320, True),
+        ("焼き魚定食", "定食", 690, 580, False),
     ]
-    for name, cat, cal, price, pop, on_sale in samples:
+    for name, cat, cal, price, on_sale in samples:
         db.session.add(Menu(
             menu_name=name, category=cat, calorie=cal, price=price,
-            initial_stock=50, popularity=pop, soldout_status=not on_sale,
+            initial_stock=50, date=None, soldout_status=not on_sale,
         ))
     db.session.commit()
 

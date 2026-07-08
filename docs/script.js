@@ -7,7 +7,7 @@ const state = {
   role: localStorage.getItem("gakushoku_role") || null,
   identity: localStorage.getItem("gakushoku_identity") || null,
   menus: [],
-  currentSort: "popularity",
+  currentSort: "price",
 };
 
 let toastTimer = null;
@@ -139,14 +139,20 @@ function logout(){
 // 学生: メニュー確認画面(ランキング)
 // ------------------------------------------------------------------
 const SORT_LABELS = {
-  popularity: "人気度が高い順に表示します。",
   price: "値段が安い順に表示します。",
   efficiency: "1円あたりのカロリーが高い順に表示します。",
   rating: "レビュー評価が高い順に表示します。",
 };
 
-async function fetchMenus(){
-  state.menus = await apiFetch("/api/menus");
+function todayDateString(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+async function fetchMenus(dateFilter){
+  const qs = dateFilter ? `?date=${dateFilter}` : "";
+  state.menus = await apiFetch(`/api/menus${qs}`);
   return state.menus;
 }
 
@@ -157,7 +163,6 @@ async function fetchCongestion(){
 function sortedMenus(sortKey){
   const onSale = state.menus.filter(m => !m.soldout_status);
   const arr = [...onSale];
-  if(sortKey === "popularity") arr.sort((a,b)=> b.popularity - a.popularity);
   if(sortKey === "price") arr.sort((a,b)=> a.price - b.price);
   if(sortKey === "efficiency") arr.sort((a,b)=> (b.calorie/b.price) - (a.calorie/a.price));
   if(sortKey === "rating") arr.sort((a,b)=> {
@@ -179,20 +184,27 @@ function renderMenuGrid(){
     return `
       <div class="menu-card">
         <span class="name">${m.menu_name}</span>
-        <span class="cat">カテゴリ: ${m.category || "-"}</span>
+        <span class="cat">カテゴリ: ${m.category || "-"}${m.date ? ` / ${m.date}限定` : ""}</span>
         <span class="row"><span>値段</span><span>${m.price}円</span></span>
         <span class="row"><span>カロリー</span><span>${m.calorie}kcal</span></span>
-        <span class="row"><span>人気度</span><span>${m.popularity}</span></span>
         <span class="row"><span>1円当たり</span><span>${efficiency}kcal</span></span>
         <span class="stars">${starString(m.avg_rating, m.review_count)}</span>
-        <button class="review-btn" data-menu-id="${m.id}">この一皿を評価する</button>
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button class="review-btn" data-menu-id="${m.id}">評価する</button>
+          <button class="review-btn" data-view-id="${m.id}" data-view-name="${m.menu_name}">レビューを見る</button>
+        </div>
       </div>
     `;
   }).join("");
 
-  grid.querySelectorAll(".review-btn").forEach(btn=>{
+  grid.querySelectorAll("[data-menu-id]").forEach(btn=>{
     btn.addEventListener("click", ()=>{
       openReviewFor(Number(btn.dataset.menuId));
+    });
+  });
+  grid.querySelectorAll("[data-view-id]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      openMenuReviews(Number(btn.dataset.viewId), btn.dataset.viewName);
     });
   });
 }
@@ -215,7 +227,7 @@ async function renderStatusStrip(){
 async function renderStudentTop(){
   $("menu-grid").innerHTML = `<p class="empty-note">読み込み中...</p>`;
   try{
-    await fetchMenus();
+    await fetchMenus(todayDateString());
     await renderStatusStrip();
     renderMenuGrid();
   }catch(e){ showToast(e.message); }
@@ -226,7 +238,7 @@ async function renderStudentTop(){
 // ------------------------------------------------------------------
 async function renderSoldOutView(){
   try{
-    await fetchMenus();
+    await fetchMenus(todayDateString());
     const congestion = await fetchCongestion();
     const soldOutList = state.menus.filter(m => m.soldout_status).map(m => m.menu_name);
 
@@ -264,7 +276,7 @@ async function reportSoldOut(){
 // ------------------------------------------------------------------
 async function renderReviewView(preselectId){
   try{
-    if(state.menus.length === 0) await fetchMenus();
+    if(state.menus.length === 0) await fetchMenus(todayDateString());
     const sel = $("select-review-menu");
     sel.innerHTML = state.menus.map(m => `<option value="${m.menu_name}">${m.menu_name}</option>`).join("");
     if(preselectId){
@@ -281,6 +293,30 @@ async function renderReviewView(preselectId){
 function toggleLowRatingTags(){
   const rating = Number($("select-review-rating").value);
   $("low-rating-tags").style.display = rating <= 2 ? "block" : "none";
+}
+
+async function openMenuReviews(menuId, menuName){
+  $("menu-reviews-title").textContent = `${menuName} のレビュー`;
+  $("menu-reviews-list").innerHTML = `<p class="empty-note">読み込み中...</p>`;
+  showView("view-menu-reviews");
+  try{
+    const data = await apiFetch(`/api/menus/${menuId}/reviews`);
+    if(data.reviews.length === 0){
+      $("menu-reviews-list").innerHTML = `<p class="empty-note">まだレビューがありません。</p>`;
+      return;
+    }
+    $("menu-reviews-list").innerHTML = data.reviews.map(r => `
+      <div class="review-item">
+        <div class="top-row">
+          <span class="menu-name">匿名の学生</span>
+          <span class="stars">${"★".repeat(r.review_score)}${"☆".repeat(5-r.review_score)}</span>
+        </div>
+        <div class="meta">${new Date(r.created_at).toLocaleDateString("ja-JP")}</div>
+        ${r.review_tag.length ? `<div class="tags">${r.review_tag.map(t=>`<span class="tag">${t}</span>`).join("")}</div>` : ``}
+        ${r.review_msg ? `<div class="comment">${r.review_msg}</div>` : ``}
+      </div>
+    `).join("");
+  }catch(e){ showToast(e.message); }
 }
 
 async function openReviewFor(menuId){
@@ -309,16 +345,17 @@ async function submitReview(){
 // 管理者: メニュー編集画面(トップ)
 // ------------------------------------------------------------------
 async function renderAdminTop(){
-  $("admin-menu-tbody").innerHTML = `<tr><td colspan="6">読み込み中...</td></tr>`;
+  $("admin-menu-tbody").innerHTML = `<tr><td colspan="7">読み込み中...</td></tr>`;
   try{
-    await fetchMenus();
+    const filterDate = $("admin-date-filter").value; // 空なら全件
+    await fetchMenus(filterDate || null);
     $("admin-menu-tbody").innerHTML = state.menus.map(m => `
       <tr data-id="${m.id}">
         <td class="name-cell">${m.menu_name}</td>
         <td><input type="text" class="edit-category" value="${m.category || ""}"></td>
         <td><input type="number" class="edit-price" value="${m.price}" min="0"></td>
         <td><input type="number" class="edit-calorie" value="${m.calorie}" min="0"></td>
-        <td><input type="number" class="edit-popularity" value="${m.popularity}" min="0"></td>
+        <td><input type="date" class="edit-date" value="${m.date || ""}"></td>
         <td>
           <select class="edit-onsale">
             <option value="true" ${!m.soldout_status ? "selected":""}>はい</option>
@@ -335,6 +372,17 @@ async function renderAdminTop(){
   }catch(e){ showToast(e.message); }
 }
 
+async function deleteMenu(menuId, btnEl){
+  const row = btnEl.closest("tr");
+  const name = row.querySelector(".name-cell").textContent;
+  if(!confirm(`「${name}」を削除します。よろしいですか?`)) return;
+  try{
+    await apiFetch(`/api/admin/menus/${menuId}`, { method:"DELETE", auth:true });
+    showToast(`「${name}」を削除しました`);
+    renderAdminTop();
+  }catch(e){ showToast(e.message); }
+}
+
 async function saveMenus(){
   const rows = $("admin-menu-tbody").querySelectorAll("tr[data-id]");
   try{
@@ -346,23 +394,12 @@ async function saveMenus(){
           category: row.querySelector(".edit-category").value.trim(),
           price: Number(row.querySelector(".edit-price").value) || 0,
           calorie: Number(row.querySelector(".edit-calorie").value) || 0,
-          popularity: Number(row.querySelector(".edit-popularity").value) || 0,
+          date: row.querySelector(".edit-date").value || "",
           on_sale: row.querySelector(".edit-onsale").value === "true",
         },
       });
     }
     showToast("変更を保存しました");
-  }catch(e){ showToast(e.message); }
-}
-
-async function deleteMenu(menuId, btnEl){
-  const row = btnEl.closest("tr");
-  const name = row.querySelector(".name-cell").textContent;
-  if(!confirm(`「${name}」を削除します。よろしいですか?`)) return;
-  try{
-    await apiFetch(`/api/admin/menus/${menuId}`, { method:"DELETE", auth:true });
-    showToast(`「${name}」を削除しました`);
-    renderAdminTop();
   }catch(e){ showToast(e.message); }
 }
 
@@ -387,7 +424,7 @@ function clearAddForm(){
   $("add-category").value = "";
   $("add-price").value = "";
   $("add-calorie").value = "";
-  $("add-popularity").value = "0";
+  $("add-date").value = "";
   $("add-onsale").value = "true";
 }
 
@@ -396,7 +433,7 @@ async function addMenu(){
   const category = $("add-category").value.trim();
   const price = Number($("add-price").value);
   const calorie = Number($("add-calorie").value);
-  const popularity = Number($("add-popularity").value) || 0;
+  const date = $("add-date").value || null;
   const on_sale = $("add-onsale").value === "true";
 
   if(!menu_name || !category || !price || !calorie){
@@ -407,7 +444,7 @@ async function addMenu(){
   try{
     await apiFetch("/api/admin/menus", {
       method:"POST", auth:true,
-      body:{ menu_name, category, price, calorie, popularity, on_sale },
+      body:{ menu_name, category, price, calorie, date, on_sale },
     });
     showToast(`「${menu_name}」を追加しました`);
     clearAddForm();
@@ -508,6 +545,10 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btn-save-menus").addEventListener("click", saveMenus);
   $("btn-reset-menus").addEventListener("click", renderAdminTop);
   $("btn-csv-upload").addEventListener("click", uploadCsv);
+  $("btn-filter-today").addEventListener("click", ()=>{ $("admin-date-filter").value = todayDateString(); renderAdminTop(); });
+  $("btn-filter-all").addEventListener("click", ()=>{ $("admin-date-filter").value = ""; renderAdminTop(); });
+
+  $("btn-back-from-menu-reviews").addEventListener("click", goHome);
 
   $("btn-back-from-add").addEventListener("click", ()=>{ renderAdminTop(); showView("view-admin-top"); });
   $("btn-add-menu").addEventListener("click", addMenu);
