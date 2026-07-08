@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>明石高専 学食ナビ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="toast" class="toast" aria-live="polite"></div>
+
+<!-- ===================== ログイン画面 ===================== -->
+<section id="view-login" class="view active">
+  <div class="login-wrap">
+    <div class="login-card">
+      <span class="eyebrow">Akashi Kosen Cafeteria</span>
+      <h1 class="brand">明石高専<br>学食ナビ</h1>
+      <p class="lead">満席・売り切れ状況、レビューをリアルタイムに共有する学食情報システム。</p>
+
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-target="login-student">学生</button>
+        <button class="auth-tab" data-target="login-admin">管理者</button>
+      </div>
+
+      <!-- 学生ログイン -->
+      <div class="auth-panel active" id="login-student">
+        <div class="field">
+          <label for="student-id-input">学籍番号</label>
+          <input type="text" id="student-id-input" placeholder="例) 12345" maxlength="5">
+        </div>
+        <div class="field">
+          <label for="student-pw-input">パスワード</label>
+          <input type="password" id="student-pw-input">
+        </div>
+        <button class="btn btn-primary btn-block" id="btn-login-student">学生としてログイン</button>
+        <button class="link-btn" id="btn-show-register">アカウントをお持ちでない方はこちら</button>
+      </div>
+
+      <!-- 学生新規登録 -->
+      <div class="auth-panel" id="login-register">
+        <div class="field">
+          <label for="reg-id-input">学籍番号(5桁)</label>
+          <input type="text" id="reg-id-input" maxlength="5" placeholder="例) 12345">
+        </div>
+        <div class="field">
+          <label for="reg-email-input">メールアドレス(任意)</label>
+          <input type="text" id="reg-email-input" placeholder="example@akashi.ac.jp">
+        </div>
+        <div class="field">
+          <label for="reg-pw-input">パスワード(4文字以上)</label>
+          <input type="password" id="reg-pw-input">
+        </div>
+        <button class="btn btn-primary btn-block" id="btn-register">登録してログイン</button>
+        <button class="link-btn" id="btn-show-login">ログイン画面に戻る</button>
+      </div>
+
+      <!-- 管理者ログイン -->
+      <div class="auth-panel" id="login-admin">
+        <div class="field">
+          <label for="admin-pw-input">管理者パスワード</label>
+          <input type="password" id="admin-pw-input">
+        </div>
+        <button class="btn btn-outline btn-block" id="btn-login-admin">管理者としてログイン</button>
+      </div>
+
+      <p class="note">※本システムはプロトタイプです。データはRender上のサーバーで管理されます。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 共通ヘッダー(ログイン後) ===================== -->
+<header id="app-header" class="app-header hidden">
+  <div class="app-header-inner">
+    <button class="brand-mini" id="btn-go-home">明石高専 学食ナビ</button>
+    <div class="header-right">
+      <span class="role-badge" id="role-badge">学生</span>
+      <button class="btn btn-ghost btn-sm" id="btn-logout">ログアウト</button>
+    </div>
+  </div>
+</header>
+
+<!-- ===================== 学生: メニュー確認画面(トップ) ===================== -->
+<section id="view-student-top" class="view">
+  <div class="hero">
+    <span class="pill">Akashi Kosen Cafeteria</span>
+    <h1 class="hero-title">明石高専 学食ナビ</h1>
+    <p class="hero-sub">人気順・安い順・カロリー効率順・高評価順で、今食べるべき一皿をすぐ見つける。</p>
+    <div class="hero-actions">
+      <button class="btn btn-hero" id="btn-goto-soldout">満席・売り切れ 確認/報告</button>
+      <button class="btn btn-hero-outline" id="btn-goto-review-blank">メニューを評価する</button>
+    </div>
+  </div>
+
+  <div class="status-strip" id="status-strip"></div>
+
+  <div class="panel">
+    <h2 class="panel-title">ランキング</h2>
+    <div class="tabs" id="rank-tabs">
+      <button class="tab active" data-sort="popularity">人気順</button>
+      <button class="tab" data-sort="price">安い順</button>
+      <button class="tab" data-sort="efficiency">高カロリー効率順</button>
+      <button class="tab" data-sort="rating">高評価順</button>
+    </div>
+    <p class="tab-desc" id="tab-desc">人気度が高い順に表示します。</p>
+
+    <div class="menu-grid" id="menu-grid"><p class="empty-note">読み込み中...</p></div>
+  </div>
+</section>
+
+<!-- ===================== 学生: 満席・売り切れ確認/報告画面 ===================== -->
+<section id="view-soldout" class="view">
+  <div class="panel narrow">
+    <button class="btn-back" id="btn-back-from-soldout">&larr; メニュー確認画面へ戻る</button>
+    <h2 class="panel-title">満席・売り切れの確認 / 報告</h2>
+
+    <div class="info-box">
+      <p id="info-congestion"></p>
+      <p id="info-soldout"></p>
+    </div>
+
+    <div class="field">
+      <label for="select-congestion">食堂の混雑状況</label>
+      <select id="select-congestion">
+        <option>空席あり</option>
+        <option>やや混雑</option>
+        <option>満席</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-block" id="btn-report-congestion">混雑状況を報告</button>
+
+    <div class="field field-mt">
+      <label for="select-soldout-menu">メニュー</label>
+      <select id="select-soldout-menu"></select>
+    </div>
+    <div class="field">
+      <label for="select-soldout-status">報告内容</label>
+      <select id="select-soldout-status">
+        <option value="売り切れ">売り切れ</option>
+        <option value="販売再開">販売再開</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-block" id="btn-report-soldout">売り切れ状況を報告</button>
+  </div>
+</section>
+
+<!-- ===================== 学生: メニュー評価画面 ===================== -->
+<section id="view-review" class="view">
+  <div class="panel narrow">
+    <button class="btn-back" id="btn-back-from-review">&larr; メニュー確認画面へ戻る</button>
+    <h2 class="panel-title">メニューを評価する</h2>
+
+    <div class="field">
+      <label for="select-review-menu">メニュー</label>
+      <select id="select-review-menu"></select>
+    </div>
+
+    <div class="field">
+      <label for="select-review-rating">評価</label>
+      <select id="select-review-rating">
+        <option value="5">5: 最高</option>
+        <option value="4">4: 良い</option>
+        <option value="3" selected>3: ふつう</option>
+        <option value="2">2: いまいち</option>
+        <option value="1">1: 残念</option>
+      </select>
+    </div>
+
+    <div class="field" id="low-rating-tags">
+      <span class="field-label">低評価理由タグ(評価1-2の時に選択)</span>
+      <div class="tag-grid">
+        <label class="tag-check"><input type="checkbox" value="味が薄い"><span>味が薄い</span></label>
+        <label class="tag-check"><input type="checkbox" value="冷めていた"><span>冷めていた</span></label>
+        <label class="tag-check"><input type="checkbox" value="量が少ない"><span>量が少ない</span></label>
+        <label class="tag-check"><input type="checkbox" value="値段が高い"><span>値段が高い</span></label>
+        <label class="tag-check"><input type="checkbox" value="提供が遅い"><span>提供が遅い</span></label>
+        <label class="tag-check"><input type="checkbox" value="見た目がいまいち"><span>見た目がいまいち</span></label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="review-comment">コメント(任意)</label>
+      <textarea id="review-comment" rows="3" placeholder="感想があればどうぞ"></textarea>
+    </div>
+
+    <button class="btn btn-primary btn-block" id="btn-submit-review">評価を送信</button>
+  </div>
+</section>
+
+<!-- ===================== 管理者: メニュー編集画面(トップ) ===================== -->
+<section id="view-admin-top" class="view">
+  <div class="hero hero-admin">
+    <span class="pill">管理者モード</span>
+    <h1 class="hero-title">管理者メニュー編集</h1>
+    <p class="hero-sub">既存メニューの内容・販売状況を編集します。</p>
+    <div class="hero-actions">
+      <button class="btn btn-hero" id="btn-goto-admin-add">新規メニュー追加</button>
+      <button class="btn btn-hero-outline" id="btn-goto-admin-reviews">レビュー管理</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 class="panel-title">CSV一括登録</h2>
+    <p class="tab-desc">列: menu_name, category, price, calorie, initial_stock, popularity</p>
+    <div class="csv-upload">
+      <input type="file" id="csv-file-input" accept=".csv">
+      <button class="btn btn-primary" id="btn-csv-upload">アップロード</button>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 class="panel-title">既存メニュー編集</h2>
+    <div class="table-wrap">
+      <table class="menu-table" id="admin-menu-table">
+        <thead>
+          <tr>
+            <th>メニュー名</th><th>カテゴリ</th><th>値段</th><th>カロリー</th><th>人気度</th><th>販売中</th>
+          </tr>
+        </thead>
+        <tbody id="admin-menu-tbody"></tbody>
+      </table>
+    </div>
+    <div class="admin-actions">
+      <button class="btn btn-primary" id="btn-save-menus">変更を保存</button>
+      <button class="btn btn-danger-outline" id="btn-reset-menus">編集を破棄して再読み込み</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 管理者: 新規メニュー追加画面 ===================== -->
+<section id="view-admin-add" class="view">
+  <div class="panel narrow">
+    <button class="btn-back" id="btn-back-from-add">&larr; メニュー編集画面へ戻る</button>
+    <h2 class="panel-title">新規メニュー追加</h2>
+
+    <div class="field">
+      <label for="add-name">メニュー名</label>
+      <input type="text" id="add-name">
+    </div>
+    <div class="field">
+      <label for="add-category">カテゴリ</label>
+      <input type="text" id="add-category" placeholder="定食 / 麺 / カレー">
+    </div>
+    <div class="field">
+      <label for="add-price">値段(円)</label>
+      <input type="number" id="add-price" min="0">
+    </div>
+    <div class="field">
+      <label for="add-calorie">カロリー(kcal)</label>
+      <input type="number" id="add-calorie" min="0">
+    </div>
+    <div class="field">
+      <label for="add-popularity">初期人気度(0以上)</label>
+      <input type="number" id="add-popularity" min="0" value="0">
+    </div>
+    <div class="field">
+      <label for="add-onsale">販売中</label>
+      <select id="add-onsale">
+        <option value="true">はい</option>
+        <option value="false">いいえ</option>
+      </select>
+    </div>
+    <button class="btn btn-primary btn-block" id="btn-add-menu">追加する</button>
+  </div>
+</section>
+
+<!-- ===================== 管理者: レビュー管理画面 ===================== -->
+<section id="view-admin-reviews" class="view">
+  <div class="panel">
+    <button class="btn-back" id="btn-back-from-reviews">&larr; メニュー編集画面へ戻る</button>
+    <h2 class="panel-title">レビュー管理</h2>
+    <p class="tab-desc">学生から寄せられたレビューの一覧です。不適切な投稿は削除できます。</p>
+    <div class="review-list" id="admin-review-list"></div>
+  </div>
+</section>
+
+<script src="config.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
