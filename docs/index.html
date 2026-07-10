@@ -38,6 +38,7 @@
         </div>
         <button class="btn btn-primary btn-block" id="btn-login-student">学生としてログイン</button>
         <button class="link-btn" id="btn-show-register">アカウントをお持ちでない方はこちら</button>
+        <button class="link-btn" id="btn-resend-verification">確認メールが届かない場合はこちら</button>
       </div>
 
       <!-- 学生新規登録 -->
@@ -47,8 +48,8 @@
           <input type="text" id="reg-id-input" maxlength="6" placeholder="例) M2481">
         </div>
         <div class="field">
-          <label for="reg-email-input">メールアドレス(任意)</label>
-          <input type="text" id="reg-email-input" placeholder="example@akashi.ac.jp">
+          <label for="reg-email-input">メールアドレス(確認メールを送信します)</label>
+          <input type="email" id="reg-email-input" placeholder="example@akashi.ac.jp" required>
         </div>
         <div class="field">
           <label for="reg-pw-input">パスワード(4文字以上)</label>
@@ -242,6 +243,7 @@
     <div class="admin-actions">
       <button class="btn btn-primary" id="btn-save-menus">変更を保存</button>
       <button class="btn btn-danger-outline" id="btn-reset-menus">編集を破棄して再読み込み</button>
+      <button class="btn btn-danger-outline" id="btn-delete-all-menus">全メニューを削除</button>
     </div>
   </div>
 </section>

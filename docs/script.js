@@ -101,13 +101,22 @@ async function registerStudent(){
   const email = $("reg-email-input").value.trim();
   const password = $("reg-pw-input").value;
   if(student_id.length < 5 || student_id.length > 6){ showToast("学籍番号は5桁または6桁で入力してください"); return; }
+  if(!email || !email.includes("@")){ showToast("有効なメールアドレスを入力してください"); return; }
   try{
-    await apiFetch("/api/auth/register", { method:"POST", body:{ student_id, email, password } });
-    showToast("登録が完了しました。ログインします");
-    const data = await apiFetch("/api/auth/login", { method:"POST", body:{ student_id, password } });
-    state.token = data.token; state.role = "student"; state.identity = data.student_id;
-    persistAuth();
-    afterLogin();
+    const data = await apiFetch("/api/auth/register", { method:"POST", body:{ student_id, email, password } });
+    showToast(data.message || "確認メールを送信しました。メール内のリンクをクリックしてください");
+    $("student-id-input").value = student_id;
+    document.querySelectorAll(".auth-panel").forEach(p=>p.classList.remove("active"));
+    $("login-student").classList.add("active");
+  }catch(e){ showToast(e.message); }
+}
+
+async function resendVerification(){
+  const student_id = $("student-id-input").value.trim();
+  if(!student_id){ showToast("学籍番号を入力してから押してください"); return; }
+  try{
+    const data = await apiFetch("/api/auth/resend-verification", { method:"POST", body:{ student_id } });
+    showToast(data.message || "確認メールを再送信しました");
   }catch(e){ showToast(e.message); }
 }
 
@@ -372,6 +381,15 @@ async function renderAdminTop(){
   }catch(e){ showToast(e.message); }
 }
 
+async function deleteAllMenus(){
+  if(!confirm("本当に全てのメニューを削除しますか?この操作は取り消せません。")) return;
+  try{
+    const data = await apiFetch("/api/admin/menus", { method:"DELETE", auth:true });
+    showToast(data.message || "全メニューを削除しました");
+    renderAdminTop();
+  }catch(e){ showToast(e.message); }
+}
+
 async function deleteMenu(menuId, btnEl){
   const row = btnEl.closest("tr");
   const name = row.querySelector(".name-cell").textContent;
@@ -515,6 +533,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("btn-login-student").addEventListener("click", loginStudent);
   $("btn-register").addEventListener("click", registerStudent);
+  $("btn-resend-verification").addEventListener("click", resendVerification);
   $("btn-login-admin").addEventListener("click", loginAdmin);
   $("btn-logout").addEventListener("click", logout);
   $("btn-go-home").addEventListener("click", goHome);
@@ -545,6 +564,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("btn-save-menus").addEventListener("click", saveMenus);
   $("btn-reset-menus").addEventListener("click", renderAdminTop);
   $("btn-csv-upload").addEventListener("click", uploadCsv);
+  $("btn-delete-all-menus").addEventListener("click", deleteAllMenus);
   $("btn-filter-today").addEventListener("click", ()=>{ $("admin-date-filter").value = todayDateString(); renderAdminTop(); });
   $("btn-filter-all").addEventListener("click", ()=>{ $("admin-date-filter").value = ""; renderAdminTop(); });
 

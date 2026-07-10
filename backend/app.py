@@ -11,6 +11,9 @@
     SECRET_KEY     トークン署名用の秘密鍵
     ADMIN_PASSWORD 管理者ログイン用パスワード
     ALLOWED_ORIGIN CORSを許可するオリジン(例: https://<user>.github.io)
+    RESEND_API_KEY メール送信サービス(Resend)のAPIキー。未設定時はメール送信をスキップしログ出力のみ行う
+    FROM_EMAIL     送信元アドレス(独自ドメイン未検証の場合は既定の onboarding@resend.dev のままでよい)
+    APP_BASE_URL   このバックエンド自身の公開URL(確認メール内のリンク生成に使用。例: https://gakushoku-api.onrender.com)
 """
 
 import csv
@@ -18,6 +21,7 @@ import io
 import os
 from datetime import datetime
 
+import requests
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
@@ -43,6 +47,10 @@ CORS(app, resources={r"/api/*": {"origins": ALLOWED_ORIGIN}})
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin-pass-change-me")
 
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+FROM_EMAIL = os.environ.get("FROM_EMAIL", "onboarding@resend.dev")
+APP_BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:5000")
+
 db = SQLAlchemy(app)
 serializer = URLSafeTimedSerializer(app.config["SECRET_KEY"])
 TOKEN_MAX_AGE = 60 * 60 * 12  # 12時間
@@ -61,6 +69,7 @@ class User(db.Model):
     student_id = db.Column(db.String(6), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=True)
     password_hash = db.Column(db.String(255), nullable=False)  # ※varchar(12)から拡張(ハッシュ値を保存するため)
+    is_verified = db.Column(db.Boolean, default=False)  # ※拡張: メールアドレス確認用
 
     def check_password(self, raw_password):
         return check_password_hash(self.password_hash, raw_password)
@@ -162,6 +171,37 @@ def require_role(role):
     return payload
 
 
+def send_verification_email(to_email, token):
+    """Resend経由で確認メールを送信する。APIキー未設定時はログ出力のみ。"""
+    verify_url = f"{APP_BASE_URL}/api/auth/verify/{token}"
+
+    if not RESEND_API_KEY:
+        app.logger.warning("RESEND_API_KEY未設定のためメール送信をスキップしました。確認URL: %s", verify_url)
+        return
+
+    try:
+        requests.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}"},
+            json={
+                "from": FROM_EMAIL,
+                "to": [to_email],
+                "subject": "【明石高専 学食ナビ】メールアドレスの確認",
+                "html": f"""
+                    <div style="font-family: sans-serif; line-height: 1.7;">
+                      <p>明石高専 学食ナビへのご登録ありがとうございます。</p>
+                      <p>以下のボタンをクリックして、登録を完了してください。</p>
+                      <p><a href="{verify_url}" style="display:inline-block; background:#1F6F5C; color:#fff; padding:12px 24px; border-radius:8px; text-decoration:none;">登録を完了する</a></p>
+                      <p>リンクの有効期限は24時間です。心当たりがない場合はこのメールを破棄してください。</p>
+                    </div>
+                """,
+            },
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        app.logger.error("確認メールの送信に失敗しました: %s", e)
+
+
 # ------------------------------------------------------------------
 # ルート: ヘルスチェック
 # ------------------------------------------------------------------
@@ -175,22 +215,78 @@ def health():
 # ------------------------------------------------------------------
 @app.post("/api/auth/register")
 def register():
-    """デモ用: 学籍番号+パスワードでアカウントを作成する。
-    本番運用では管理者による事前登録を想定。"""
+    """学籍番号+メールアドレス+パスワードでアカウントを作成し、確認メールを送信する。
+    メール内のリンクをクリックするまでログインはできない。"""
     data = request.get_json(force=True) or {}
     student_id = str(data.get("student_id", "")).strip()
-    email = str(data.get("email", "")).strip() or None
+    email = str(data.get("email", "")).strip()
     password = str(data.get("password", ""))
 
     if len(student_id) not in (5, 6) or len(password) < 4:
         return jsonify({"error": "学籍番号は5桁または6桁、パスワードは4文字以上で入力してください"}), 400
+    if not email or "@" not in email:
+        return jsonify({"error": "有効なメールアドレスを入力してください"}), 400
     if User.query.filter_by(student_id=student_id).first():
         return jsonify({"error": "この学籍番号は既に登録されています"}), 409
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "このメールアドレスは既に登録されています"}), 409
 
-    user = User(student_id=student_id, email=email, password_hash=generate_password_hash(password))
+    user = User(student_id=student_id, email=email, password_hash=generate_password_hash(password), is_verified=False)
     db.session.add(user)
     db.session.commit()
-    return jsonify({"message": "登録が完了しました"}), 201
+
+    token = serializer.dumps({"purpose": "verify_email", "user_id": user.id}, salt="email-verify")
+    send_verification_email(email, token)
+
+    return jsonify({"message": "確認メールを送信しました。メール内のリンクをクリックして登録を完了してください。"}), 201
+
+
+@app.get("/api/auth/verify/<token>")
+def verify_email(token):
+    """確認メール内のリンク先。クリックされるとアカウントを有効化する。"""
+    try:
+        data = serializer.loads(token, salt="email-verify", max_age=60 * 60 * 24)  # 24時間有効
+    except SignatureExpired:
+        return _verify_result_page("リンクの有効期限が切れています", "お手数ですが、もう一度登録をやり直してください。", ok=False)
+    except BadSignature:
+        return _verify_result_page("無効なリンクです", "URLが正しいかご確認ください。", ok=False)
+
+    user = User.query.get(data.get("user_id"))
+    if not user:
+        return _verify_result_page("ユーザーが見つかりません", "アカウントが削除された可能性があります。", ok=False)
+
+    user.is_verified = True
+    db.session.commit()
+    return _verify_result_page("登録が完了しました", "アプリに戻ってログインしてください。", ok=True)
+
+
+def _verify_result_page(title, message, ok=True):
+    color = "#1F6F5C" if ok else "#B5432E"
+    icon = "✅" if ok else "⚠️"
+    return f"""
+    <html><head><meta charset="utf-8"><title>{title}</title></head>
+    <body style="font-family: sans-serif; text-align:center; padding:60px 20px; background:#F7F1E1;">
+      <h1 style="color:{color};">{icon} {title}</h1>
+      <p style="color:#4a2f18;">{message}</p>
+    </body></html>
+    """, (200 if ok else 400)
+
+
+@app.post("/api/auth/resend-verification")
+def resend_verification():
+    data = request.get_json(force=True) or {}
+    student_id = str(data.get("student_id", "")).strip()
+    user = User.query.filter_by(student_id=student_id).first()
+    if not user:
+        return jsonify({"error": "ユーザーが見つかりません"}), 404
+    if user.is_verified:
+        return jsonify({"message": "このアカウントは既に確認済みです"})
+    if not user.email:
+        return jsonify({"error": "登録済みのメールアドレスがありません"}), 400
+
+    token = serializer.dumps({"purpose": "verify_email", "user_id": user.id}, salt="email-verify")
+    send_verification_email(user.email, token)
+    return jsonify({"message": "確認メールを再送信しました"})
 
 
 @app.post("/api/auth/login")
@@ -203,6 +299,8 @@ def login_student():
     user = User.query.filter_by(student_id=student_id).first()
     if not user or not user.check_password(password):
         return jsonify({"error": "学籍番号またはパスワードが正しくありません"}), 401
+    if not user.is_verified:
+        return jsonify({"error": "メールアドレスの確認がまだ完了していません。届いたメールのリンクをクリックしてください。"}), 403
 
     token = issue_token("student", user.student_id)
     return jsonify({"token": token, "role": "student", "student_id": user.student_id})
@@ -330,6 +428,15 @@ def edit_menu(menu_id):
 
     db.session.commit()
     return jsonify(menu.to_dict())
+
+
+@app.delete("/api/admin/menus")
+def delete_all_menus():
+    if not require_role("admin"):
+        return jsonify({"error": "権限がありません"}), 401
+    count = Menu.query.delete()
+    db.session.commit()
+    return jsonify({"message": f"{count}件のメニューを全て削除しました"})
 
 
 @app.delete("/api/admin/menus/<int:menu_id>")
